@@ -5,69 +5,6 @@ program="$3"
 min_freespace="1048576" # 1GB er 1048576
 packages="youtube-dl curl jq screen"
 
-##### Installasjon av pakker som NRK-DL trenger for å fungere
-if [ ! -f "nrk-dl-installed.txt" ]; then
-    while true; do
-        echo "NRK-DL krever at youtube-dl, curl, jq og screen installeres for at NRK-DL skal fungere" ""
-        read -p "Ønsker du at vi gjør dette for deg automatisk [y/n/q]? " install
-        case $install in
-            [Yy]* ) break;;
-            [Nn]* ) exit;;
-            [Qq]* ) exit;;
-            * ) echo "Svar [y]es, [n]o eller [q]uit"; echo "";;
-        esac
-    done
-
-    # Sjekk hvilke package managers eksisterer
-    apt_path=$(command -v apt-get)
-    yum_path=$(command -v yum)
-    pacman_path=$(command -v pacman)
-
-    if [ "$EUID" -ne 0 ]; then
-        sudo_exist=$(command -v sudo)
-        if [ "$sudo_exist" = "" ]; then
-            echo "Kjører ikke som root, har heller ikke sudo installert"
-            exit
-        fi
-        
-        if [ "$apt_path" != "" ]; then
-            echo "Installerer pakker for Deiban basert OS"
-            sudo apt-get update
-            sudo apt-get -y install $packages
-        elif [ "$yum_path" != "" ]; then
-            echo "Installerer pakker for CentOS"
-            sudo yum -y install $packages
-        elif [ "$pacman_path" != "" ]; then
-            echo "Installerer pakker for Arch basert OS"
-            sudo pacman -Syy
-			sudo pacman -S -y $packages
-        fi
-    else
-        if [ "$apt_path" != "" ]; then
-            echo "Installerer pakker for Deiban basert OS"
-            apt-get update
-            apt-get -y install $packages
-        elif [ "$yum_path" != "" ]; then
-            echo "Installerer pakker for CentOS"
-            yum -y install $packages
-        elif [ "$pacman_path" != "" ]; then
-            echo "Installerer pakker for Arch basert OS"
-            pacman -Syy
-			pacman -S -y $packages
-        fi
-    fi
-    echo "1" > "nrk-dl-installed.txt"
-fi
-
-##### Opprette downloads mappe om den ikke finnes
-if [ ! -d "downloads" ]; then
-    mkdir "downloads"
-    if [ ! -d "downloads" ]; then
-        echo "" "Kunne ikke opprette mappe 'downloads'"
-        exit
-    fi
-fi
-
 ##### Spørsmål om å laste ned parallellt
 if [ "$parallell" != "0" ] && [ "$parallell" != "1" ]; then
     while true; do
@@ -87,7 +24,7 @@ if [ "$parallell" != "0" ]; then
     if [ "$threads" = "" ]; then
         while true; do
             echo ""
-            read -p "Hvor mange samtidige nedlastninger skal skje samtidig? " response_threads
+            read -p "Hvor mange samtidige nedlastninger skal skje? " response_threads
             case $response_threads in
                 [123456789][1234567890] ) threads=$response_threads; break;;
                 [23456789] ) threads=$response_threads; break;;
@@ -123,15 +60,15 @@ else
 fi
 
 ##### Opprett mappe til nedlastningen av serien
-if [ ! -d "downloads/${program}" ]; then
-    mkdir "downloads/${program}"
-    if [ ! -d "downloads/${program}" ]; then
-        echo "" "Kunne ikke opprette mappe: downloads/${program}"
+if [ ! -d "./${program}" ]; then
+    mkdir "./${program}"
+    if [ ! -d "./${program}" ]; then
+        echo "" "Kunne ikke opprette mappe: ./${program}"
         exit
     fi
 fi
 
-cd "downloads/${program}"
+cd "./${program}"
 
 links_raw=""
 
@@ -156,7 +93,7 @@ if [ "$parallell" = "0" ]; then
                 progress=$(expr $progress + 1)
                 printf "\n\n"
                 echo "Starter nedlastning ($progress/$links_num)"
-                youtube-dl "$link"
+                youtube-dl --write-sub --sub-format ttml --convert-subtitles srt --embed-subs -o 'S%(season_number)02dE%(episode_number)02d.%(title)s.%(height)sp.WEB.DL-NoGRoUP.%(ext)s' "$link"
                 break;
             else
                 echo "Lite plass ledig, avventer til det er $(expr $min_freespace / 1048576)GB plass ledig, venter 30 sekunder..."
@@ -179,13 +116,12 @@ if [ "$parallell" = "1" ]; then
                 echo "Maximum threads ($screen_num/$threads), waiting"
                 sleep 10
             else
-                volume=$(df $(pwd) | awk '/^\/dev/ {print $1}')
-                cur_freespace=$(df "$volume" | grep -vE '^Filesystem|tmpfs|cdrom' | awk '{ print $4 }')
+                cur_freespace=$(df $(pwd) | tail -n 1 | awk '{ print $4 }')
                 if [ "$cur_freespace" -gt "$min_freespace" ]; then
                     thread_num=$(expr $thread_num + 1)
                     screen -S "nrk-dl-$program-$thread_num" -d -m
                     sleep 0.1
-                    screen -r "nrk-dl-$program-$thread_num" -X stuff "youtube-dl $link"
+                    screen -r "nrk-dl-$program-$thread_num" -X stuff "youtube-dl --write-sub --sub-format ttml --convert-subtitles srt --embed-subs -o 'S%(season_number)02dE%(episode_number)02d.%(height)sp.WEB.DL-NoGRoUP.%(ext)s' "$link""
                     sleep 0.1
                     screen -r "nrk-dl-$program-$thread_num" -X stuff '\n'
                     sleep 0.1
@@ -203,5 +139,5 @@ if [ "$parallell" = "1" ]; then
             fi
         done
     done
-    echo "" "Alle nedlastninger har staret, de kjører i bakgrunn så pass på at de får kjørt seg ferdig (screen -list)"
+    echo "" "Alle nedlastninger har startet, de kjører i bakgrunnen; sjekk dem ved å bruke (screen -list)"
 fi
